@@ -15,8 +15,8 @@ import (
 )
 
 type ProcessExcecution struct {
-	StartedAt int64 `bson:"started_at"`
-	EndendAt  int64 `bson:"ended_at"`
+	StartedAt time.Time
+	EndendAt  time.Time
 }
 
 type UserStruct struct {
@@ -24,12 +24,12 @@ type UserStruct struct {
 	LastName    string                         `bson:"last_name" json:"last_name"`
 	Process     map[string][]ProcessExcecution `bson:"process" json:"process"`
 	LastProcess []string                       `bson:"last_process" json:"last_process"`
-	LastRequest int64                          `bson:"last_request" json:"last_request"`
+	LastRequest time.Time
 }
 
 type DataStruct struct {
-	ID      string   `json:"id"`
-	Process []string `json:"process"`
+	ID      string     `json:"id"`
+	Process [][]string `json:"process"`
 }
 
 type Database struct {
@@ -74,23 +74,29 @@ func (database *Database) handler(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		log.Println(user.FirstName)
-		time := time.Now().Unix()
 		if user.Process == nil {
 			user.Process = make(map[string][]ProcessExcecution)
 		}
-		for _, dataProcess := range data.Process {
-			if user.Process[dataProcess] != nil && contains(user.LastProcess, dataProcess) && (time-user.LastRequest) < 120 {
-				log.Println("process exist")
-				user.Process[dataProcess][len(user.Process[dataProcess])-1].EndendAt = time
-			} else {
-				var newProcess ProcessExcecution
-				newProcess.StartedAt = time
-				newProcess.EndendAt = time
-				user.Process[dataProcess] = append(user.Process[dataProcess], newProcess)
+		timing := time.Now()
+
+		for i, dataToProcess := range data.Process {
+			now := timing.Add(time.Duration(-(len(data.Process) - 1 - i)) * time.Minute)
+			for _, dataProcess := range dataToProcess {
+
+				if user.Process[dataProcess] != nil && contains(user.LastProcess, dataProcess) && now.Unix()-user.LastRequest.Unix() < 120 {
+					log.Println("process exist")
+					user.Process[dataProcess][len(user.Process[dataProcess])-1].EndendAt = now
+				} else {
+					var newProcess ProcessExcecution
+					newProcess.StartedAt = now
+					newProcess.EndendAt = now
+					user.Process[dataProcess] = append(user.Process[dataProcess], newProcess)
+				}
 			}
+			user.LastProcess = dataToProcess
+			user.LastRequest = now
 		}
-		user.LastProcess = data.Process
-		user.LastRequest = time
+
 		_, err = database.Collection.Doc(data.ID).Set(context.Background(), user)
 		response, _ := json.Marshal(Response{Status: "OK"})
 		if err != nil {
